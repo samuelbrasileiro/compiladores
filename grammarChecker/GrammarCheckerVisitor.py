@@ -55,10 +55,14 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
 
      # Visit a parse tree produced by GrammarParser#function_definition.
     def visitFunction_definition(self, ctx:GrammarParser.Function_definitionContext):
+        token = ctx.identifier().IDENTIFIER().getPayload()
         tyype = ctx.tyype().getText()
         name = ctx.identifier().getText()
+        #print(ctx.arguments().getText())
         params = self.visit(ctx.arguments())
-        self.ids_defined[name] = tyype, params, None
+        #print(params)
+        self.ids_defined[name] = tyype, params, token.line
+        #print(self.ids_defined[name])
         self.inside_what_function = name
         self.visit(ctx.body())
         return
@@ -66,14 +70,37 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by GrammarParser#body.
     def visitBody(self, ctx:GrammarParser.BodyContext):
+        #print("body: "+self.inside_what_function)
+        funcType = self.ids_defined[self.inside_what_function][0]
+        token = self.ids_defined[self.inside_what_function][2]
+        if funcType != 'void':
+            if "return" not in ctx.getText():
+                print("ERROR: Missing return {} value in function {} in line {}".format(funcType, self.inside_what_function, token))
+        
         return self.visitChildren(ctx)
 
 
     # Visit a parse tree produced by GrammarParser#statement.
     def visitStatement(self, ctx:GrammarParser.StatementContext):
+        #print("statement: "+self.inside_what_function)
+        funcType = self.ids_defined[self.inside_what_function][0]
+        
+        if(ctx.RETURN()):
+            token = ctx.RETURN().getPayload()
+            
+            if funcType == 'void':
+                if ctx.getText()[len("return")] != ';':
+                    print("ERROR: Unexpected non-void return value in void function {} in line {} and column {}".format(self.inside_what_function, str(token.line), str(token.column+6)))
+            else:
+                if ctx.getText()[len("return")] == ';':
+                    print("ERROR: Unexpected void return value (expected {}) in function {} in line {} and column {}".format(funcType, self.inside_what_function, token.line, token.column+6))
 
-
-        return self.visitChildren(ctx)
+                else:
+                    returnType = self.visitExpression(ctx.expression())
+                    token = ctx.RETURN().getPayload()
+                    if returnType != funcType:
+                        print("ERROR: Wrong return type in function {} (given {}, expected {}) in line {} and column {}".format(self.inside_what_function, returnType, funcType, token.line, token.column + len("return")))
+            return self.visitChildren(ctx)
 
 
     # Visit a parse tree produced by GrammarParser#if_statement.
@@ -117,7 +144,6 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
         # aqui vamos salvar as novas ids no prog
 
         tyype = ctx.tyype().getText()
-
         attVarlist = []
         children = list(ctx.getChildren())
         
@@ -149,7 +175,9 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
                         print("WARNING: Possible loss of information assigning float expression to int variable '{}' in line {} and column {}".format(str(name), str(token.line), str(token.column)))
                     elif (tyype_variable != tyype_expression) and not (tyype_variable == Type.FLOAT and tyype_expression == Type.INT) :
                         print("ERROR: trying to assign '{}' expression to variable '{}' in line {} and column {}".format(tyype_expression, name, str(token.line), str(token.column)))
-                    
+                    #elif(tyype_expression == Type.VOID):
+                        
+
                     break
 
         return self.visitChildren(ctx)
@@ -213,9 +241,9 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
     # Visit a parse tree produced by GrammarParser#expression.
     def visitExpression(self, ctx:GrammarParser.ExpressionContext):
         #tyype = Type.VOID
-
+        #print("expression: "+self.inside_what_function)
         numberOfExpressions = len(ctx.expression())
-
+        
         if ctx.integer() != None:
             return Type.INT
 
@@ -232,7 +260,7 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
             def_variable = self.ids_defined.get(name)
 
             if def_variable == None:
-                print("ERROR: trying to use in expression a non-defined variable '{}' in line {} and column {}".format(name, str(token.line), str(token.column)))
+                print("ERROR: trying to use a non-defined variable '{}' in expression in line {} and column {}".format(name, str(token.line), str(token.column)))
                 return None
             
             tyype = def_variable[0]
@@ -244,7 +272,7 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
 
         
         elif ctx.function_call() != None:
-            print("function call")
+            return self.visit(ctx.function_call())
         
         elif ctx.OP() != None:
             if len(ctx.expression()) == 1:
@@ -274,12 +302,45 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by GrammarParser#function_call.
     def visitFunction_call(self, ctx:GrammarParser.Function_callContext):
-        return self.visitChildren(ctx)
+        functionName = ctx.identifier().getText()
+        token = ctx.identifier().IDENTIFIER().getPayload()
+        passedArgs = len(ctx.expression())
+        funcType = ""
+
+        if self.ids_defined.get(functionName) != None:
+            funcType = self.ids_defined[functionName][0]
+            funcArgs = self.ids_defined[functionName][1]
+            column = ctx.getText().index('(')
+
+            if passedArgs != len(funcArgs):
+                print("ERROR: Wrong number of arguments (given {}, expected {}) in line {} column {}".format(passedArgs, len(funcArgs), token.line, column))
+
+            else:
+                for i in range(passedArgs):
+                    expType = self.visitExpression(ctx.expression(i))
+                    argType = self.ids_defined[funcArgs[i]][0]
+                    if argType == expType:
+                        continue
+                    else:
+                        print("ERROR: Wrong type of arguments (given {}, expected {} in line {} and column {}".format(expType, argType, token.line, column))
+                        
+        else:
+            print("Error: Trying to call a non-defined function {} in line {} and column {}".format(functionName, token.line, token.column)) 
+
+        return funcType
 
 
     # Visit a parse tree produced by GrammarParser#arguments.
     def visitArguments(self, ctx:GrammarParser.ArgumentsContext):
-        return self.visitChildren(ctx)
+        numberOfArgs = len(ctx.identifier())
+        args = []
+        for i in range(numberOfArgs):
+            identifier = ctx.identifier(i).getText()
+            tyype = ctx.tyype(i).getText()
+            self.ids_defined[identifier] = tyype, None
+            args.append(identifier)
+
+        return args
 
 
     # Visit a parse tree produced by GrammarParser#tyype.
