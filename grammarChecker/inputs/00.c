@@ -13,11 +13,11 @@ int fatorial(int n) {
 		return 1;
 }
 
-float fsquare(float val) {
+float fsquare(float val) { 
 	return val * val;
 }
 
-void doing(float f, int ik) {
+void doing(float f, int ik) { // eh pra dar erro
 	return f;
 }
 
