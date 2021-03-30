@@ -12,7 +12,7 @@ int scalar (int a, int b) {
 	int array[10];
 	for (int i = 0; i < 10; i++) {
 		if (a < b) a -= b;
-		array[i] = a;
+		array[2] = a;
 	}
 	/***********
 	 * comment *

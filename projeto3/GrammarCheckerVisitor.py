@@ -18,6 +18,9 @@ class Type:
 class GrammarCheckerVisitor(ParseTreeVisitor):
     ids_defined = {} # armazenar informações necessárias para cada identifier definido
     inside_what_function = ""
+    
+    #normal = (tyype, array_length = -1, éConstante?, valor)
+    #array = (tyype, array_length, [0:array_length] de (éConstante?, valor))
 
     # Visit a parse tree produced by GrammarParser#fiile.
     def visitFiile(self, ctx:GrammarParser.FiileContext):
@@ -116,6 +119,7 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
                     elif expr_types[j] == Type.FLOAT and tyype == Type.INT:
                         print("WARNING: possible loss of information initializing float expression to int array '" + name + "' at index " + str(j) + " of array literal in line " + str(token.line) + " and column " + str(token.column))
             array_length = self.visit(ctx.array(i))
+
             self.ids_defined[name] = tyype, array_length
 
         return
@@ -167,16 +171,22 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
     # Visit a parse tree produced by GrammarParser#expression.
     def visitExpression(self, ctx:GrammarParser.ExpressionContext):
         tyype = Type.VOID
+        value = None
+        is_constant = True
+
         if len(ctx.expression()) == 0:
 
             if ctx.integer() != None:
                 tyype = Type.INT
+                value = int(ctx.integer().getText())
 
             elif ctx.floating() != None:
                 tyype = Type.FLOAT
+                value = float(ctx.floating().getText())
 
             elif ctx.string() != None:
                 tyype = Type.STRING
+                value = ctx.string().getText()
 
             elif ctx.identifier() != None:
                 name = ctx.identifier().getText()
@@ -219,29 +229,44 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
         elif len(ctx.expression()) == 2: # binary operators
             text = ctx.OP.text
             token = ctx.OP
-            left = self.visit(ctx.expression(0))
-            right = self.visit(ctx.expression(1))
-            if left == Type.VOID or right == Type.VOID:
+            
+            left_tyype, left_value, left_constant = self.visit(ctx.expression(0))
+            right_tyype, right_value, right_constant = self.visit(ctx.expression(1))
+
+            is_constant = left_constant and right_constant
+
+            if left_tyype == Type.VOID or right_tyype == Type.VOID:
                 print("ERROR: binary operator '" + text + "' used on type void in line " + str(token.line) + " and column " + str(token.column))
 
             if text == '*' or text == '/' or text == '+' or text == '-':
-                if left == Type.FLOAT or right == Type.FLOAT:
+                if left_tyype == Type.FLOAT or right_tyype == Type.FLOAT:
                     tyype = Type.FLOAT
                 else:
                     tyype = Type.INT
+
+                if text == '*':
+                    value = left_value * right_value
+                elif text == '/':
+                    value = left_value / right_value
+                elif text == '+':
+                    value = left_value + right_value
+                elif text == '-':
+                    value = left_value - right_value
             else:
                 tyype = Type.INT
+                
 
-        return tyype
+        return tyype, value, is_constant
 
 
     # Visit a parse tree produced by GrammarParser#array.
     def visitArray(self, ctx:GrammarParser.ArrayContext):
-        tyype = self.visit(ctx.expression())
+        tyype, length, _ = self.visit(ctx.expression())
         if tyype != Type.INT:
             token = ctx.identifier().IDENTIFIER().getPayload()
             print("ERROR: array expression must be an integer, but it is " + str(tyype) + " in line " + str(token.line) + " and column " + str(token.column))
-        return 
+        
+        return length
 
 
     # Visit a parse tree produced by GrammarParser#array_literal.
