@@ -19,8 +19,8 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
     ids_defined = {} # armazenar informações necessárias para cada identifier definido
     inside_what_function = ""
     
-    #normal = (tyype, array_length = -1, éConstante?, valor)
-    #array = (tyype, array_length, [0:array_length] de (éConstante?, valor))
+    #normal = (tyype, array_length = -1, valor, éConstante?)
+    #array = (tyype, array_length, [0:array_length] de (valor, éConstante?))
 
     # Visit a parse tree produced by GrammarParser#fiile.
     def visitFiile(self, ctx:GrammarParser.FiileContext):
@@ -45,9 +45,10 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by GrammarParser#statement.
     def visitStatement(self, ctx:GrammarParser.StatementContext):
+        value = None
         if ctx.RETURN() != None:
             token = ctx.RETURN().getPayload()
-            tyype = self.visit(ctx.expression())
+            tyype, value, is_constant = self.visit(ctx.expression())
             function_type, params = self.ids_defined[self.inside_what_function]
             if function_type == Type.INT and tyype == Type.FLOAT:
                 print("WARNING: possible loss of information returning float expression from int function '" + self.inside_what_function + "' in line " + str(token.line) + " and column " + str(token.column))
@@ -58,7 +59,7 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
 
         else:
             self.visitChildren(ctx)
-        return
+        return 
 
 
     # Visit a parse tree produced by GrammarParser#if_statement.
@@ -98,15 +99,19 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
         for i in range(len(ctx.identifier())):
             name = ctx.identifier(i).getText()
             token = ctx.identifier(i).IDENTIFIER().getPayload()
+
             if ctx.expression(i) != None:
                 #print(ctx.expression(i).getText())
-                expr_type = self.visit(ctx.expression(i))
+                expr_type, expr_value, expr_is_constant = self.visit(ctx.expression(i))
                 if expr_type == Type.VOID or expr_type == Type.STRING:
                     print("ERROR: trying to assign '" + expr_type + "' expression to variable '" + name + "' in line " + str(token.line) + " and column " + str(token.column))
                 elif expr_type == Type.FLOAT and tyype == Type.INT:
                     print("WARNING: possible loss of information assigning float expression to int variable '" + name + "' in line " + str(token.line) + " and column " + str(token.column))
                 #print("noExpr")
-            self.ids_defined[name] = tyype, -1 # -1 means not a array, therefore no length here (vide 15 lines below)
+
+                self.ids_defined[name] = tyype, -1, expr_value, expr_is_constant
+            else:
+                self.ids_defined[name] = tyype, -1, None, None # -1 means not a array, therefore no length here (vide 15 lines below)
 
         for i in range(len(ctx.array())):
             name = ctx.array(i).identifier().getText()
@@ -122,17 +127,22 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
 
             self.ids_defined[name] = tyype, array_length
 
+        print(self.ids_defined)
         return
 
 
     # Visit a parse tree produced by GrammarParser#variable_assignment.
     def visitVariable_assignment(self, ctx:GrammarParser.Variable_assignmentContext):
         op = ctx.OP.text
+        name = None
+        tyype = None
+        value = None
+        is_constant = None
         if ctx.identifier() != None:
             name = ctx.identifier().getText()
             token = ctx.identifier().IDENTIFIER().getPayload()
             try:
-                tyype, _ = self.ids_defined[name]
+                tyype, _, value, is_constant = self.ids_defined[name]
             except:
                 print("ERROR: undefined variable '" + name + "' in line " + str(token.line) + " and column " + str(token.column))
                 return
@@ -153,18 +163,39 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
 
 
         if ctx.expression() != None:
-            expr_type = self.visit(ctx.expression())
+            expr_type, expr_value, expr_is_constant = self.visit(ctx.expression())
+
+            if ctx.identifier() != None:
+                
+                if op == '/=':
+                    expr_value = value / expr_value
+                elif op == '*=':
+                    expr_value = value * expr_value
+                elif op == '+=':
+                    expr_value = value + expr_value
+                elif op == '-=':
+                    expr_value = value - expr_value
+                
+                self.ids_defined[name] = tyype, -1, expr_value, expr_is_constant
+
+            else: # array
+                self.ids_defined[name] = tyype, array_length
+
             if expr_type == Type.VOID or expr_type == Type.STRING:
                 print("ERROR: trying to assign '" + expr_type + "' expression to variable '" + name + "' in line " + str(token.line) + " and column " + str(token.column))
             elif expr_type == Type.FLOAT and tyype == Type.INT:
                 print("WARNING: possible loss of information assigning float expression to int variable '" + name + "' in line " + str(token.line) + " and column " + str(token.column))
 
-
-        if ctx.identifier() != None:
-            self.ids_defined[name] = tyype, -1
-        else: # array
-            self.ids_defined[name] = tyype, array_length
-
+        else:
+            if op == '++':
+                value += 1
+            elif op == '--':
+                value -= 1
+            if ctx.identifier() != None:
+                self.ids_defined[name] = tyype, -1, value, is_constant
+            else: # array
+                self.ids_defined[name] = tyype, array_length
+        print(self.ids_defined)
         return
 
 
@@ -173,7 +204,9 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
         tyype = Type.VOID
         value = None
         is_constant = True
-
+        
+        function_type, params = self.ids_defined.get( self.inside_what_function)
+        print(params)
         if len(ctx.expression()) == 0:
 
             if ctx.integer() != None:
@@ -191,7 +224,8 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
             elif ctx.identifier() != None:
                 name = ctx.identifier().getText()
                 try:
-                    tyype, _ = self.ids_defined[name]
+                    tyype, _, value, is_constant = self.ids_defined[name]
+
                 except:
                     token = ctx.identifier().IDENTIFIER().getPayload()
                     print("ERROR: undefined variable '" + name + "' in line " + str(token.line) + " and column " + str(token.column))
@@ -223,17 +257,18 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
                     print("ERROR: unary operator '" + text + "' used on type void in line " + str(token.line) + " and column " + str(token.column))
 
             else: # parentheses
-                tyype = self.visit(ctx.expression(0))
+                tyype, value, is_constant = self.visit(ctx.expression(0))
 
 
         elif len(ctx.expression()) == 2: # binary operators
             text = ctx.OP.text
             token = ctx.OP
-            
+
             left_tyype, left_value, left_constant = self.visit(ctx.expression(0))
             right_tyype, right_value, right_constant = self.visit(ctx.expression(1))
 
             is_constant = left_constant and right_constant
+
 
             if left_tyype == Type.VOID or right_tyype == Type.VOID:
                 print("ERROR: binary operator '" + text + "' used on type void in line " + str(token.line) + " and column " + str(token.column))
@@ -243,6 +278,12 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
                     tyype = Type.FLOAT
                 else:
                     tyype = Type.INT
+                # print("my type = ", tyype)
+                # print(left_value, text, right_value)
+                # print(ctx.getText())
+
+                if left_value == None or right_value == None:
+                    return tyype, None, False
 
                 if text == '*':
                     value = left_value * right_value
@@ -252,10 +293,15 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
                     value = left_value + right_value
                 elif text == '-':
                     value = left_value - right_value
+                # print("final value = ", value)
+                
+                if is_constant:
+                    print("line {} Expression {} {} {} simplified to: {}".format(str(token.line), str(left_value), str(text), str(right_value), str(value)))
+
             else:
                 tyype = Type.INT
                 
-
+        # print("final final value = ", value)
         return tyype, value, is_constant
 
 
