@@ -205,8 +205,8 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
         value = None
         is_constant = True
         
-        function_type, params = self.ids_defined.get( self.inside_what_function)
-        print(params)
+        # function_type, params = self.ids_defined.get( self.inside_what_function)
+        # print(params)
         if len(ctx.expression()) == 0:
 
             if ctx.integer() != None:
@@ -353,7 +353,7 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
         for i in range(len(ctx.identifier())):
             tyype = ctx.tyype(i).getText()
             name = ctx.identifier(i).getText()
-            self.ids_defined[name] = tyype, -1
+            self.ids_defined[name] = tyype, -1, None, False
             params += [tyype]
         return params
 
