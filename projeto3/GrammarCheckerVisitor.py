@@ -18,7 +18,7 @@ class Type:
 class GrammarCheckerVisitor(ParseTreeVisitor):
     ids_defined = {} # armazenar informações necessárias para cada identifier definido
     inside_what_function = ""
-    
+    connected_to_condition = [] #conecta as variaveis que podem deixar de serem constante nos elses e fors
     #normal = (tyype, array_length = -1, valor, éConstante?)
     #array = (tyype, array_length, [0:array_length] de (valor, éConstante?))
 
@@ -64,7 +64,23 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by GrammarParser#if_statement.
     def visitIf_statement(self, ctx:GrammarParser.If_statementContext):
-        return self.visitChildren(ctx)
+        #primeiro visito a expressao
+        self.visit(ctx.expression())
+        #empilho com os names das vars que podem deixar de serem constantes dentro desse if
+        self.connected_to_condition.append([key for key, value in self.ids_defined.items()])
+
+        #checo o corpo do if
+        if ctx.body() != None:
+            self.visit(ctx.body())
+        elif ctx.statement() != None:
+            self.visit(ctx.statement())
+        
+        if ctx.else_statement() != None:
+            self.visit(ctx.else_statement())
+        
+        #desempilho as variaveis que seriam colapsadas por esse if
+        self.connected_to_condition.pop()
+        
 
 
     # Visit a parse tree produced by GrammarParser#else_statement.
@@ -74,7 +90,25 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by GrammarParser#for_loop.
     def visitFor_loop(self, ctx:GrammarParser.For_loopContext):
-        return self.visitChildren(ctx)
+        #visito o inicialiador
+        self.visit(ctx.for_initializer())
+
+        #empilho com os names das vars que podem deixar de serem constantes dentro desse for
+        old_keys = [key for key, value in self.ids_defined.items()]
+        self.connected_to_condition.append(old_keys)
+
+        #visito as partes do for
+        self.visit(ctx.for_step())
+
+        self.visit(ctx.for_condition())
+
+        if ctx.body() != None:
+            self.visit(ctx.body())
+        elif ctx.statement() != None:
+            self.visit(ctx.statement())        
+
+        self.connected_to_condition.pop()
+        #return self.visitChildren(ctx)
 
 
     # Visit a parse tree produced by GrammarParser#for_initializer.
@@ -109,6 +143,9 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
                     print("WARNING: possible loss of information assigning float expression to int variable '" + name + "' in line " + str(token.line) + " and column " + str(token.column))
                 #print("noExpr")
 
+                #se ele nao estiver em nenhuma função a variavel nao é constante 
+                if self.inside_what_function == "":
+                    expr_is_constant = False
                 self.ids_defined[name] = tyype, -1, expr_value, expr_is_constant
             else:
                 self.ids_defined[name] = tyype, -1, None, None # -1 means not a array, therefore no length here (vide 15 lines below)
@@ -138,14 +175,30 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
         tyype = None
         value = None
         is_constant = None
+
+        
+        params = []
+        #vamos pegar os parametros da funcao, que foram declarados nos argumentos
+        if self.inside_what_function != "":
+            function_type, params = self.ids_defined.get( self.inside_what_function)
+
         if ctx.identifier() != None:
             name = ctx.identifier().getText()
             token = ctx.identifier().IDENTIFIER().getPayload()
+
             try:
+                #checando no ids_defined
                 tyype, _, value, is_constant = self.ids_defined[name]
+                
             except:
-                print("ERROR: undefined variable '" + name + "' in line " + str(token.line) + " and column " + str(token.column))
-                return
+                try:
+                    #se nao tiver no ids_defined é pra ta nos parametros ne
+                    tyype = params[name]
+                    
+                    is_constant = False    
+                except:
+                    print("ERROR: undefined variable '" + name + "' in line " + str(token.line) + " and column " + str(token.column))
+                    return
 
 
         else:
@@ -165,7 +218,22 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
         if ctx.expression() != None:
             expr_type, expr_value, expr_is_constant = self.visit(ctx.expression())
 
-            if ctx.identifier() != None:
+            #aqui é como se a gente visse a pilha dos ifs e pegava os nomes das variaveis que podem deixar de ser constantes ao serem usadas detro de uma condicao
+            prior_variables = []
+            try:
+                prior_variables = self.connected_to_condition[-1]
+            except:
+                prior_variables = []
+                print("nothing in prior")
+
+            #se tiver, xau xau constante
+            if name in prior_variables:
+                expr_value = None
+                expr_is_constant = False
+
+            if not is_constant or not expr_is_constant:
+                self.ids_defined[name] = tyype, -1, None, False
+            elif ctx.identifier() != None:
                 
                 if op == '/=':
                     expr_value = value / expr_value
@@ -187,14 +255,31 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
                 print("WARNING: possible loss of information assigning float expression to int variable '" + name + "' in line " + str(token.line) + " and column " + str(token.column))
 
         else:
-            if op == '++':
-                value += 1
-            elif op == '--':
-                value -= 1
-            if ctx.identifier() != None:
-                self.ids_defined[name] = tyype, -1, value, is_constant
-            else: # array
-                self.ids_defined[name] = tyype, array_length
+            #aqui é a mesma coisa so que pra var++ e var-- 
+            prior_variables = []
+            try:
+                prior_variables = self.connected_to_condition[-1]
+            except:
+                prior_variables = []
+                print("nothing in prior")
+            
+            if name in prior_variables:
+                value = None
+                is_constant = False
+            
+            if not is_constant:
+                self.ids_defined[name] = tyype, -1, None, False
+            else:
+                if op == '++':
+                    value += 1
+                elif op == '--':
+                    value -= 1
+                
+                if ctx.identifier() != None:
+                    self.ids_defined[name] = tyype, -1, value, is_constant
+                    print(self.ids_defined[name])
+                else: # array
+                    self.ids_defined[name] = tyype, array_length
         print(self.ids_defined)
         return
 
@@ -204,8 +289,11 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
         tyype = Type.VOID
         value = None
         is_constant = True
-        
-        # function_type, params = self.ids_defined.get( self.inside_what_function)
+        function_type = None
+        params = []
+        #pegamos os paramentros pra checar se a variavel foi declarada nos args
+        if self.inside_what_function != "":
+            function_type, params = self.ids_defined.get( self.inside_what_function)
         # print(params)
         if len(ctx.expression()) == 0:
 
@@ -227,8 +315,14 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
                     tyype, _, value, is_constant = self.ids_defined[name]
 
                 except:
-                    token = ctx.identifier().IDENTIFIER().getPayload()
-                    print("ERROR: undefined variable '" + name + "' in line " + str(token.line) + " and column " + str(token.column))
+                    try:
+                        #se n tiver no ids_defined é pra estar nos parametros né
+                        tyype = params[name]
+                        
+                        is_constant = False
+                    except:
+                        token = ctx.identifier().IDENTIFIER().getPayload()
+                        print("ERROR: undefined variable '" + name + "' in line " + str(token.line) + " and column " + str(token.column))
 
             elif ctx.array() != None:
                 name = ctx.array().identifier().getText()
@@ -252,7 +346,18 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
             if ctx.OP != None: #unary operators
                 text = ctx.OP.text
                 token = ctx.OP
-                tyype = self.visit(ctx.expression(0))
+                tyype, old_value, is_constant = self.visit(ctx.expression(0))
+
+                #se ja nao for constante é xau xau
+                if is_constant == False:
+                    return tyype, None, False
+
+                if text == '-':
+                    value = -old_value
+                else:
+                    value = old_value
+                print("line {} Expression {} {} simplified to: {}".format(str(token.line), str(text), str(old_value), str(value)))
+
                 if tyype == Type.VOID:
                     print("ERROR: unary operator '" + text + "' used on type void in line " + str(token.line) + " and column " + str(token.column))
 
@@ -282,24 +387,39 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
                 # print(left_value, text, right_value)
                 # print(ctx.getText())
 
-                if left_value == None or right_value == None:
-                    return tyype, None, False
-
-                if text == '*':
-                    value = left_value * right_value
-                elif text == '/':
-                    value = left_value / right_value
-                elif text == '+':
-                    value = left_value + right_value
-                elif text == '-':
-                    value = left_value - right_value
-                # print("final value = ", value)
-                
-                if is_constant:
-                    print("line {} Expression {} {} {} simplified to: {}".format(str(token.line), str(left_value), str(text), str(right_value), str(value)))
-
             else:
                 tyype = Type.INT
+
+            #se ja nao for constante é xau xau não é pra nem se dar o trabalho
+            if left_value == None or right_value == None:
+                return tyype, None, False
+
+            if text == '*':
+                value = left_value * right_value
+            elif text == '/':
+                value = left_value / right_value
+            elif text == '+':
+                value = left_value + right_value
+            elif text == '-':
+                value = left_value - right_value
+            elif text == '<':
+                value = int(left_value < right_value)
+            elif text == '<=':
+                value = int(left_value <= right_value)
+            elif text == '>':
+                value = int(left_value > right_value)
+            elif text == '>=':
+                value = int(left_value >= right_value)
+            elif text == '==':
+                value = int(left_value == right_value)
+            elif text == '!=':
+                value = int(left_value != right_value)
+            # print("final value = ", value)
+
+            if is_constant:
+                print("line {} Expression {} {} {} simplified to: {}".format(str(token.line), str(left_value), str(text), str(right_value), str(value)))
+
+            
                 
         # print("final final value = ", value)
         return tyype, value, is_constant
@@ -336,25 +456,28 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
                 print("ERROR: incorrect number of parameters for function '" + name + "' in line " + str(token.line) + " and column " + str(token.column) + ". Expecting " + str(len(args)) + ", but " + str(len(ctx.expression())) + " were given")
         except:
             print("ERROR: undefined function '" + name + "' in line " + str(token.line) + " and column " + str(token.column))
-
+        
+        #esse iter é pra ficar pegando os itens do args como se fosse uma list
+        par_iter = iter(args)
         for i in range(len(ctx.expression())):
             arg_type = self.visit(ctx.expression(i))
             if i < len(args):
                 if arg_type == Type.VOID:
                     print("ERROR: void expression passed as parameter " + str(i) + " of function '" + name + "' in line " + str(token.line) + " and column " + str(token.column))
-                elif arg_type == Type.FLOAT and args[i] == Type.INT:
+                elif arg_type == Type.FLOAT and next(par_iter) == Type.INT:
                     print("WARNING: possible loss of information converting float expression to int expression in parameter " + str(i) + " of function '" + name + "' in line " + str(token.line) + " and column " + str(token.column))
         return tyype
 
 
     # Visit a parse tree produced by GrammarParser#arguments.
     def visitArguments(self, ctx:GrammarParser.ArgumentsContext):
-        params = []
+        #alterei para os args deixarem de serem salvos no ids_defined e serem salvos na function
+        params = {}
         for i in range(len(ctx.identifier())):
             tyype = ctx.tyype(i).getText()
             name = ctx.identifier(i).getText()
-            self.ids_defined[name] = tyype, -1, None, False
-            params += [tyype]
+            #self.ids_defined[name] = tyype, -1, None, False
+            params[name] = tyype
         return params
 
 
