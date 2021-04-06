@@ -141,7 +141,6 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
                     print("ERROR: trying to assign '" + expr_type + "' expression to variable '" + name + "' in line " + str(token.line) + " and column " + str(token.column))
                 elif expr_type == Type.FLOAT and tyype == Type.INT:
                     print("WARNING: possible loss of information assigning float expression to int variable '" + name + "' in line " + str(token.line) + " and column " + str(token.column))
-                #print("noExpr")
 
                 #se ele nao estiver em nenhuma função a variavel nao é constante 
                 if self.inside_what_function == "":
@@ -168,14 +167,7 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
                 for i in range(array_length):
                     expr_eltos.append(('',None,True))
             
-            '''
-            array_is_constant = True
-            for expr in expr_types:
-                if expr[2] == False:
-                    array_is_constant = False
-                    break
-            self.ids_defined[name] = tyype, array_length, array_is_constant, expr_types
-            '''
+
             self.ids_defined[name] = tyype, array_length, expr_eltos
             #print(self.ids_defined[name])
         #print(self.ids_defined)
@@ -241,17 +233,12 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
                 prior_variables = self.connected_to_condition[-1]
             except:
                 prior_variables = []
-                #print("nothing in prior")
 
             #se tiver, xau xau constante
-            '''
-            TEM QUE CHECAR SE É ARRAY ANTES, PORQUE SE FOR, TEM QUE PEGAR SÓ O VALOR DO INDEX
-            OU SE INVALIDAR TODO O ARRAY, TEM QUE COLOCAR OUTRO VALOR
-            '''
+
             if name in prior_variables:
                 expr_value = None
                 expr_is_constant = False
-                #print(3)
 
             if ctx.identifier() != None:
                 if not is_constant or not expr_is_constant:
@@ -301,29 +288,34 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
                 prior_variables = []
                 #print("nothing in prior")
             
-                if ctx.identifier() != None:
-                    if not is_constant:
-                        self.ids_defined[name] = tyype, -1, None, False
-                    else:
-                        if op == '++':
-                            value += 1
-                        elif op == '--':
-                            value -= 1
-                    
-                        self.ids_defined[name] = tyype, -1, value, is_constant
-    
-                else: # array
-                    if not is_constant:
-                        values[array_index] = tyype, None, False
-                    else:
-                        if op == '++':
-                            value += 1
-                        elif op == '--':
-                            value -= 1
+            if name in prior_variables:
+                value = None
+                is_constant = False
+                
 
-                        values[array_index] = tyype, value, is_constant
+            if ctx.identifier() != None:
+                if not is_constant:
+                    self.ids_defined[name] = tyype, -1, None, False
+                else:
+                    if op == '++':
+                        value += 1
+                    elif op == '--':
+                        value -= 1
+                
+                    self.ids_defined[name] = tyype, -1, value, is_constant
 
-                    self.ids_defined[name] = tyype, array_length, values
+            else: # array
+                if not is_constant:
+                    values[array_index] = tyype, None, False
+                else:
+                    if op == '++':
+                        value += 1
+                    elif op == '--':
+                        value -= 1
+
+                    values[array_index] = tyype, value, is_constant
+
+                self.ids_defined[name] = tyype, array_length, values
         return
 
 
