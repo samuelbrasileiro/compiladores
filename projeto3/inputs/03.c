@@ -14,18 +14,25 @@ int scalar (int a, int b) {
 		if (a < b) a -= b;
 		array[2] = a;
 	}
+	array[3] = 4*5;
+	array[1] = array[3]*array[3];
+	array[1] = array[1]*array[2];
+	int c = array[3]*4 + array[1]*5;
 	/***********
 	 * comment *
 	 ***********/
-	if (a > b) {
-		a /= b - unum * 2 - (4 <= a - b);
-		int j = 10;
-		int k = (b + 115) * (2 * 10 / 5);
-	} else if (a < b) {
-		b += a / -unum + (8 >= b * a);
-	} else {
-		b = a;
-	}
+	// if (a > b) {
+	// 	a /= b - unum * 2 - (4 <= a - b);
+	// 	int j = 10;
+	// 	int k = (b + 115) * (2 * 10 / 5);
+	// 	array[3] = 4*5;
+	// 	array[2] -= b;
+	// 	array[3]++;
+	// } else if (a < b) {
+	// 	b += a / -unum + (8 >= b * a);
+	// } else {
+	// 	b = a;
+	// }
 
 	return a * a + b + (b - a) * b;
 }

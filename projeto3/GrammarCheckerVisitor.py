@@ -68,7 +68,7 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
         self.visit(ctx.expression())
         #empilho com os names das vars que podem deixar de serem constantes dentro desse if
         self.connected_to_condition.append([key for key, value in self.ids_defined.items()])
-
+        
         #checo o corpo do if
         if ctx.body() != None:
             self.visit(ctx.body())
@@ -86,7 +86,7 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
     # Visit a parse tree produced by GrammarParser#else_statement.
     def visitElse_statement(self, ctx:GrammarParser.Else_statementContext):
         return self.visitChildren(ctx)
-
+        
 
     # Visit a parse tree produced by GrammarParser#for_loop.
     def visitFor_loop(self, ctx:GrammarParser.For_loopContext):
@@ -153,18 +153,32 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
         for i in range(len(ctx.array())):
             name = ctx.array(i).identifier().getText()
             token = ctx.array(i).identifier().IDENTIFIER().getPayload()
-            if ctx.array_literal(i) != None:
-                expr_types = self.visit(ctx.array_literal(i))
-                for j in range(len(expr_types)):
-                    if expr_types[j] == Type.VOID  or expr_types[j] == Type.STRING:
-                        print("ERROR: trying to initialize '" + expr_types[j] + "' expression to '" + tyype + "' array '" + name + "' at index " + str(j) + " of array literal in line " + str(token.line) + " and column " + str(token.column))
-                    elif expr_types[j] == Type.FLOAT and tyype == Type.INT:
-                        print("WARNING: possible loss of information initializing float expression to int array '" + name + "' at index " + str(j) + " of array literal in line " + str(token.line) + " and column " + str(token.column))
+            expr_eltos = []
+
             array_length = self.visit(ctx.array(i))
 
-            self.ids_defined[name] = tyype, array_length
-
-        print(self.ids_defined)
+            if ctx.array_literal(i) != None:
+                expr_eltos = self.visit(ctx.array_literal(i))
+                for j in range(len(expr_eltos)):
+                    if expr_eltos[j] == Type.VOID  or expr_eltos[j] == Type.STRING:
+                        print("ERROR: trying to initialize '" + expr_eltos[j] + "' expression to '" + tyype + "' array '" + name + "' at index " + str(j) + " of array literal in line " + str(token.line) + " and column " + str(token.column))
+                    elif expr_eltos[j] == Type.FLOAT and tyype == Type.INT:
+                        print("WARNING: possible loss of information initializing float expression to int array '" + name + "' at index " + str(j) + " of array literal in line " + str(token.line) + " and column " + str(token.column))
+            else:
+                for i in range(array_length):
+                    expr_eltos.append(('',None,True))
+            
+            '''
+            array_is_constant = True
+            for expr in expr_types:
+                if expr[2] == False:
+                    array_is_constant = False
+                    break
+            self.ids_defined[name] = tyype, array_length, array_is_constant, expr_types
+            '''
+            self.ids_defined[name] = tyype, array_length, expr_eltos
+            #print(self.ids_defined[name])
+        #print(self.ids_defined)
         return
 
 
@@ -175,7 +189,7 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
         tyype = None
         value = None
         is_constant = None
-
+        array_index = None
         
         params = []
         #vamos pegar os parametros da funcao, que foram declarados nos argumentos
@@ -201,11 +215,13 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
                     return
 
 
-        else:
+        else:#array
+            #print(ctx.getText())
             name = ctx.array().identifier().getText()
             token = ctx.array().identifier().IDENTIFIER().getPayload()
+            #print(self.ids_defined[name])
             try:
-                tyype, array_length = self.ids_defined[name]
+                tyype, array_length, values = self.ids_defined[name]
             except:
                 print("ERROR: undefined array '" + name + "' in line " + str(token.line) + " and column " + str(token.column))
                 return
@@ -213,41 +229,63 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
             if array_index < 0 or array_index >= array_length:
                 print("ERROR: array '" + name + "' index out of range in line " + str(token.line) + " and column " + str(token.column))
                 return
+            _, value, is_constant = values[array_index]
 
 
         if ctx.expression() != None:
             expr_type, expr_value, expr_is_constant = self.visit(ctx.expression())
-
+            #print(expr_is_constant)
             #aqui é como se a gente visse a pilha dos ifs e pegava os nomes das variaveis que podem deixar de ser constantes ao serem usadas detro de uma condicao
             prior_variables = []
             try:
                 prior_variables = self.connected_to_condition[-1]
             except:
                 prior_variables = []
-                print("nothing in prior")
+                #print("nothing in prior")
 
             #se tiver, xau xau constante
+            '''
+            TEM QUE CHECAR SE É ARRAY ANTES, PORQUE SE FOR, TEM QUE PEGAR SÓ O VALOR DO INDEX
+            OU SE INVALIDAR TODO O ARRAY, TEM QUE COLOCAR OUTRO VALOR
+            '''
             if name in prior_variables:
                 expr_value = None
                 expr_is_constant = False
+                #print(3)
 
-            if not is_constant or not expr_is_constant:
-                self.ids_defined[name] = tyype, -1, None, False
-            elif ctx.identifier() != None:
-                
-                if op == '/=':
-                    expr_value = value / expr_value
-                elif op == '*=':
-                    expr_value = value * expr_value
-                elif op == '+=':
-                    expr_value = value + expr_value
-                elif op == '-=':
-                    expr_value = value - expr_value
-                
-                self.ids_defined[name] = tyype, -1, expr_value, expr_is_constant
+            if ctx.identifier() != None:
+                if not is_constant or not expr_is_constant:
+                    self.ids_defined[name] = tyype, -1, None, False
+                else:
+                    if op == '/=':
+                        expr_value = value / expr_value
+                    elif op == '*=':
+                        expr_value = value * expr_value
+                    elif op == '+=':
+                        expr_value = value + expr_value
+                    elif op == '-=':
+                        expr_value = value - expr_value
+                    
+                    self.ids_defined[name] = tyype, -1, expr_value, expr_is_constant
 
             else: # array
-                self.ids_defined[name] = tyype, array_length
+                if not is_constant or not expr_is_constant:
+                    values[array_index] = tyype, None, False
+                else:
+                    if op == '/=':
+                        expr_value = value / expr_value
+                    elif op == '*=':
+                        expr_value = value * expr_value
+                    elif op == '+=':
+                        expr_value = value + expr_value
+                    elif op == '-=':
+                        expr_value = value - expr_value
+                    
+                    values[array_index] = tyype, expr_value, expr_is_constant
+                
+                #print(self.ids_defined[name])
+                self.ids_defined[name] = tyype, array_length, values
+                #print(self.ids_defined[name])
 
             if expr_type == Type.VOID or expr_type == Type.STRING:
                 print("ERROR: trying to assign '" + expr_type + "' expression to variable '" + name + "' in line " + str(token.line) + " and column " + str(token.column))
@@ -261,26 +299,31 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
                 prior_variables = self.connected_to_condition[-1]
             except:
                 prior_variables = []
-                print("nothing in prior")
+                #print("nothing in prior")
             
-            if name in prior_variables:
-                value = None
-                is_constant = False
-            
-            if not is_constant:
-                self.ids_defined[name] = tyype, -1, None, False
-            else:
-                if op == '++':
-                    value += 1
-                elif op == '--':
-                    value -= 1
-                
                 if ctx.identifier() != None:
-                    self.ids_defined[name] = tyype, -1, value, is_constant
-                    print(self.ids_defined[name])
+                    if not is_constant:
+                        self.ids_defined[name] = tyype, -1, None, False
+                    else:
+                        if op == '++':
+                            value += 1
+                        elif op == '--':
+                            value -= 1
+                    
+                        self.ids_defined[name] = tyype, -1, value, is_constant
+    
                 else: # array
-                    self.ids_defined[name] = tyype, array_length
-        print(self.ids_defined)
+                    if not is_constant:
+                        values[array_index] = tyype, None, False
+                    else:
+                        if op == '++':
+                            value += 1
+                        elif op == '--':
+                            value -= 1
+
+                        values[array_index] = tyype, value, is_constant
+
+                    self.ids_defined[name] = tyype, array_length, values
         return
 
 
@@ -326,16 +369,18 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
 
             elif ctx.array() != None:
                 name = ctx.array().identifier().getText()
-                tyype, array_length = 0, 0
+                tyype, array_length = None, None
                 try:
-                    tyype, array_length = self.ids_defined[name]
+                    tyype, array_length, array_values = self.ids_defined[name]
                 except:
                     token = ctx.array().identifier().IDENTIFIER().getPayload()
                     print("ERROR: undefined array '" + name + "' in line " + str(token.line) + " and column " + str(token.column))
                 array_index = self.visit(ctx.array())
+                
                 if array_index < 0 or array_index >= array_length:
                     print("ERROR:  array '" + name + "' index out of bounds in line " + str(token.line) + " and column " + str(token.column))
-
+                else:
+                    tyype, value, is_constant = array_values[array_index]
                 #print("array index = " + str(array_index))
 
             elif ctx.function_call() != None:
@@ -428,6 +473,8 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
     # Visit a parse tree produced by GrammarParser#array.
     def visitArray(self, ctx:GrammarParser.ArrayContext):
         tyype, length, _ = self.visit(ctx.expression())
+        
+
         if tyype != Type.INT:
             token = ctx.identifier().IDENTIFIER().getPayload()
             print("ERROR: array expression must be an integer, but it is " + str(tyype) + " in line " + str(token.line) + " and column " + str(token.column))
@@ -437,11 +484,11 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by GrammarParser#array_literal.
     def visitArray_literal(self, ctx:GrammarParser.Array_literalContext):
-        types = []
+        eltos = []
         for i in range(len(ctx.expression())):
-            tyype = self.visit(ctx.expression(i))
-            types += [tyype]
-        return types
+            tyype, value, is_constant = self.visit(ctx.expression(i))
+            eltos += [(tyype, value, is_constant)]
+        return eltos
 
 
     # Visit a parse tree produced by GrammarParser#function_call.
