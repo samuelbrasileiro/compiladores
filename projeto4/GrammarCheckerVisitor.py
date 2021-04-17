@@ -33,6 +33,12 @@ def llvm_type(tyype):
     if tyype == Type.FLOAT:
         return "float"
 
+def printAlloca(register, lltyype, align, has_tab=bool):
+    print("{}%{} = alloca {}, align {}".format("\t" if has_tab else "", str(register), lltyype, str(align)))
+
+def printStore(register_to_store, lltyype_to_store, register_to_be_stored, lltype_to_be_stored, align, has_tab=bool):
+    print("{}store {} %{}, {}* %{}, align {}".format("\t" if has_tab else "", lltyype_to_store, str(register_to_store), lltype_to_be_stored, str(register_to_be_stored), str(align)))
+
 # This class defines a complete generic visitor for a parse tree produced by GrammarParser.
 class GrammarCheckerVisitor(ParseTreeVisitor):
     ids_defined = {} # armazenar informações necessárias para cada identifier definido
@@ -40,6 +46,10 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
     connected_to_condition = [] #conecta as variaveis que podem deixar de serem constante nos elses e fors
     #normal = (tyype, array_length = -1, valor, éConstante?)
     #array = (tyype, array_length, [0:array_length] de (valor, éConstante?))
+
+    params_count = 0
+
+    registers_count = 0
 
     # Visit a parse tree produced by GrammarParser#fiile.
     def visitFiile(self, ctx:GrammarParser.FiileContext):
@@ -54,10 +64,32 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
         self.ids_defined[name] = tyype, params
         self.inside_what_function = name
 
-        
+        params_text = ""
+        self.params_count = 0
+        self.registers_count = 1
+
+        params_items = params.items()
+        for key, value in params_items:
+            
+            if self.params_count > 0:
+                params_text += ", "
+            params_text += "{} %{}".format(llvm_type(value), self.params_count)
+            self.params_count += 1
+            self.registers_count += 1
+            
+
+        #define void @splash(i32 %0) {
+        print("define {} @{}({})".format(llvm_type(tyype), name, params_text) + "{") 
+
+        paramIndex = 0
+        for key, value in params_items:
+            printAlloca(key, llvm_type(value), 4, True)
+            printStore(paramIndex, llvm_type(value), key, llvm_type(value), 4, True)
+            paramIndex += 1
 
         self.visit(ctx.body())
 
+        print("}")
 
         return
 
@@ -72,14 +104,21 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
         value = None
         if ctx.RETURN() != None:
             token = ctx.RETURN().getPayload()
-            tyype, value, is_constant = self.visit(ctx.expression())
             function_type, params = self.ids_defined[self.inside_what_function]
-            if function_type == Type.INT and tyype == Type.FLOAT:
-                print("WARNING: possible loss of information returning float expression from int function '" + self.inside_what_function + "' in line " + str(token.line) + " and column " + str(token.column))
-            elif function_type == Type.VOID and tyype != Type.VOID:
-                print("ERROR: trying to return a non void expression from void function '" + self.inside_what_function + "' in line " + str(token.line) + " and column " + str(token.column))
-            elif function_type != Type.VOID and tyype == Type.VOID:
-                print("ERROR: trying to return void expression from function '" + self.inside_what_function + "' in line " + str(token.line) + " and column " + str(token.column))
+            
+            if ctx.expression() == None:
+                if function_type != Type.VOID:
+                    print("ERROR: trying to return a non void expression from void function '" + self.inside_what_function + "' in line " + str(token.line) + " and column " + str(token.column))
+
+            else:
+                tyype, value, is_constant = self.visit(ctx.expression())
+                
+                if function_type == Type.INT and tyype == Type.FLOAT:
+                    print("WARNING: possible loss of information returning float expression from int function '" + self.inside_what_function + "' in line " + str(token.line) + " and column " + str(token.column))
+                elif function_type == Type.VOID and tyype != Type.VOID:
+                    print("ERROR: trying to return a non void expression from void function '" + self.inside_what_function + "' in line " + str(token.line) + " and column " + str(token.column))
+                elif function_type != Type.VOID and tyype == Type.VOID:
+                    print("ERROR: trying to return void expression from function '" + self.inside_what_function + "' in line " + str(token.line) + " and column " + str(token.column))
 
         else:
             self.visitChildren(ctx)
@@ -417,7 +456,7 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
                     value = -old_value
                 else:
                     value = old_value
-                print("line {} Expression {} {} simplified to: {}".format(str(token.line), str(text), str(old_value), str(value)))
+                #print("line {} Expression {} {} simplified to: {}".format(str(token.line), str(text), str(old_value), str(value)))
 
                 if tyype == Type.VOID:
                     print("ERROR: unary operator '" + text + "' used on type void in line " + str(token.line) + " and column " + str(token.column))
@@ -478,7 +517,8 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
             # print("final value = ", value)
 
             if is_constant:
-                print("line {} Expression {} {} {} simplified to: {}".format(str(token.line), str(left_value), str(text), str(right_value), str(value)))
+                _ = 3
+                #print("line {} Expression {} {} {} simplified to: {}".format(str(token.line), str(left_value), str(text), str(right_value), str(value)))
 
             
                 
