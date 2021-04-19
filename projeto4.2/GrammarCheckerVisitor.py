@@ -5,7 +5,7 @@ if __name__ is not None and "." in __name__:
 else:
     from GrammarParser import GrammarParser
 
-
+ 
 import sys
 err = sys.stderr.write
 def printf(string, *args):
@@ -42,13 +42,41 @@ def llvm_type(tyype):
         return "i32"
     if tyype == Type.FLOAT:
         return "float"
+    return str(tyype)
 
+def printAlloca(register, lltyype, align, has_tab=bool):
+    lltyype = llvm_type(lltyype)
+    print("{}%{} = alloca {}, align {}".format("\t" if has_tab else "", str(register), lltyype, str(align)))
+
+def printStore(register_to_store, lltyype_to_store, register_to_be_stored, lltyype_to_be_stored, align, has_tab=False, is_constant=False):
+    lltyype_to_store = llvm_type(lltyype_to_store)
+    lltyype_to_be_stored = llvm_type(lltyype_to_be_stored)
+    if is_constant:
+        print("{}store {} {}, {}* %{}, align {}".format("\t" if has_tab else "", lltyype_to_store, str(register_to_store), lltyype_to_be_stored, str(register_to_be_stored), str(align)))
+    else:
+        print("{}store {} %{}, {}* %{}, align {}".format("\t" if has_tab else "", lltyype_to_store, str(register_to_store), lltyype_to_be_stored, str(register_to_be_stored), str(align)))
+
+def printOper(ll_oper, register, lltyype, register1, register2, has_tab=bool, r1_is_constant=True, r2_is_constant=True):
+    lltyype = llvm_type(lltyype)
+    if not r1_is_constant:
+        register1 = "%" + str(register1)
+    if not r2_is_constant:
+        register2 = "%" + str(register2)
+    
+    print("{}%{} = {} {} {}, {}".format("\t" if has_tab else "", str(register), str(ll_oper), str(lltyype), str(register1), str(register2)))
+
+def printLoad(register_to_be_loaded, lltyype_to_be_loaded, register_to_load, lltyype_to_load, align, has_tab=False):
+    lltyype_to_load = llvm_type(lltyype_to_load)
+    lltyype_to_be_loaded = llvm_type(lltyype_to_be_loaded)
+    print("{}%{} = load {}, {}* %{}, align {}".format("\t" if has_tab else "", str(register_to_be_loaded), lltyype_to_be_loaded, lltyype_to_load, str(register_to_load), str(align)))
+    
 
 # This class defines a complete generic visitor for a parse tree produced by GrammarParser.
 class GrammarCheckerVisitor(ParseTreeVisitor):
     ids_defined = {} # armazenar informações necessárias para cada identifier definido
     inside_what_function = ""
     next_ir_register = 0
+
 
     # Visit a parse tree produced by GrammarParser#fiile.
     def visitFiile(self, ctx:GrammarParser.FiileContext):
@@ -57,6 +85,7 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by GrammarParser#function_definition.
     def visitFunction_definition(self, ctx:GrammarParser.Function_definitionContext):
+        self.next_ir_register = 0
         tyype = ctx.tyype().getText()
         name = ctx.identifier().getText()
 
@@ -64,10 +93,32 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
 
         cte_value = None
         ir_register = None
-        self.ids_defined[name] = tyype, params, cte_value, ir_register
+
+        params_tyypes = [self.ids_defined[name][0] for name in params]
+
+        self.ids_defined[name] = tyype, params_tyypes, cte_value, ir_register
         self.inside_what_function = name
         self.next_ir_register = len(params) + 1
+
+        params_text = ""
+
+        for index in range(len(params_tyypes)):
+            if index > 0:
+                params_text += ", "
+            
+            params_text += "{} %{}".format(llvm_type(params_tyypes[index]), index)
+
+        print("define {} @{}({})".format(llvm_type(tyype), name, params_text) + "{")
+        
+        for index in range(len(params)):
+            printAlloca(params[index], llvm_type(params_tyypes[index]), 4, True)
+            printStore(index, llvm_type(params_tyypes[index]), params[index], llvm_type(params_tyypes[index]), 4, True)
+
+
         self.visit(ctx.body())
+
+        print("}")
+
         return
 
 
@@ -138,15 +189,13 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
         tyype = ctx.tyype().getText()
         llvm_tyype = llvm_type(tyype)
         ir_register = None
-
+        is_inside = self.inside_what_function != ""
         # identifiers
         for i in range(len(ctx.identifier())):
             name = ctx.identifier(i).getText()
-            llvm_name = "%" + name
 
             token = ctx.identifier(i).IDENTIFIER().getPayload()
-
-            print(llvm_name + " = " + "alloca " + llvm_tyype + ", align 4")
+            printAlloca(name, llvm_tyype, 4, is_inside)
 
             if ctx.expression(i) != None:
                 expr_type, cte_value, ir_register = self.visit(ctx.expression(i))
@@ -158,12 +207,13 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
                 elif expr_type == Type.FLOAT and tyype == Type.INT:
                     err("WARNING: possible loss of information assigning float expression to int variable '" + name + "' in line " + str(token.line) + " and column " + str(token.column) + "\n")
 
+                
                 if cte_value != None:
+                    cte_value_str = str(cte_value)
                     if expr_type == Type.FLOAT:
-                        print("store " + llvm_expr_type + " " + float_to_hex(float(cte_value)) + ", " + llvm_tyype + "* " + llvm_name + ", align 4")
-                    
-                    else:
-                        print("store " + llvm_expr_type + " " + str(cte_value) + ", " + llvm_tyype + "* " + llvm_name + ", align 4")
+                        cte_value_str = float_to_hex(float(cte_value))
+                        
+                    printStore(cte_value_str, llvm_tyype, name, llvm_expr_type, 4, is_inside, True)
            
             else:
                 # unitialized variables now get value 0
@@ -198,18 +248,23 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
     def visitVariable_assignment(self, ctx:GrammarParser.Variable_assignmentContext):
         op = ctx.OP.text
         llvm_op = ""
-        llvm_name = ""
+        name = None
+        tyype = None
+        cte_value = None
+        ir_register = None
+        is_inside = self.inside_what_function != ""
+
         # identifier assignment
         if ctx.identifier() != None:
             name = ctx.identifier().getText()
             llvm_name = "%" + name
+
+
             token = ctx.identifier().IDENTIFIER().getPayload()
 
             try:
                 tyype, _, cte_value, ir_register = self.ids_defined[name]
-                llvm_tyype = llvm_type(tyype)
-                print("%" + str(self.next_ir_register) + " = load " + llvm_tyype + ", " + llvm_tyype + "* " + llvm_name + ", align 4")
-                self.next_ir_register += 1
+                
             except:
                 err("ERROR: undefined variable '" + name + "' in line " + str(token.line) + " and column " + str(token.column) + "\n")
                 exit(-1)
@@ -237,22 +292,16 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
 
 
         if op == '++' or op == '--':
+            printLoad(self.next_ir_register, tyype, name, tyype, 4, is_inside)
+
+            self.next_ir_register += 1
+
             if cte_value != None:
                 if op == '++':
                     cte_value += 1
-                    # if (tyype == Type.FLOAT):
-                    #     llvm_op = "fadd"
-                    # else:
-                        
-                    #     llvm_op = "add"
 
                 elif op == '--':
                     cte_value -= 1
-
-                    # if (tyype == Type.FLOAT):
-                    #     llvm_op = "fsub"
-                    # else:
-                    #     llvm_op = "sub"
 
             else:
                 cte_value = None
@@ -265,24 +314,26 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
                     llvm_op = "add"
 
             elif op == '--':
-                cte_value -= 1
 
                 if (tyype == Type.FLOAT):
                     llvm_op = "fsub"
                 else:
                     llvm_op = "sub"
+            one_value = 1
+            if tyype == Type.FLOAT:
+                one_value = float_to_hex(float(one_value))
             
-            if (tyype == Type.FLOAT):
-                print("%" + str(self.next_ir_register) + " = " + llvm_op + " " + llvm_tyype + " %" + str(self.next_ir_register-1) + ", " + float_to_hex(1.0))
-            else:
-                print("%" + str(self.next_ir_register) + " = " + llvm_op + " " + llvm_tyype + " %" + str(self.next_ir_register-1) + ", " + "1")
+            llvm_tyype = llvm_type(tyype)
+            printOper(llvm_op, self.next_ir_register, llvm_tyype, self.next_ir_register - 1, one_value, is_inside, False, True)
 
-            print("store " + llvm_tyype + " %" + str(self.next_ir_register) + ", " + llvm_tyype + "* " + llvm_name + ", align 4")
+            printStore(self.next_ir_register, llvm_tyype, name, llvm_tyype, 4, is_inside, False)
+
             self.next_ir_register += 1
         
         else:
             expr_type, expr_cte_value, expr_ir_register = self.visit(ctx.expression())
             llvm_expr_type = llvm_type(expr_type)
+            llvm_tyype = llvm_type(tyype)
             if expr_type == Type.VOID:
                 err("ERROR: trying to assign void expression to variable '" + name + "' in line " + str(token.line) + " and column " + str(token.column) + "\n")
                 exit(-1)
@@ -292,6 +343,8 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
             if op == '=':
                 cte_value = expr_cte_value
             if cte_value != None:
+                
+
                 if op == '+=':
                     cte_value += expr_cte_value
                     
@@ -325,14 +378,22 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
                         llvm_op = "fdiv"
                     else:
                         llvm_op = "udiv"
-                
-                if (tyype == Type.FLOAT):
-                    print("%" + str(self.next_ir_register) + " = " + llvm_op + " " + llvm_tyype + " %" + str(self.next_ir_register-1) + ", " + float_to_hex(float(expr_cte_value)))
-                else:
-                    print("%" + str(self.next_ir_register) + " = " + llvm_op + " " + llvm_tyype + " %" + str(self.next_ir_register-1) + ", " + str(expr_cte_value))
 
-                print("store " + llvm_expr_type + " %" + str(self.next_ir_register) + ", " + llvm_tyype + "* " + llvm_name + ", align 4")
-                self.next_ir_register += 1
+                expr_cte_value_str = str(expr_cte_value)
+                if (tyype == Type.FLOAT):
+                    expr_cte_value_str = float_to_hex(float(expr_cte_value))
+
+                if op != '=':
+
+                    printLoad(self.next_ir_register, tyype, name, tyype, 4, is_inside)
+                    self.next_ir_register += 1
+                    printOper(llvm_op, self.next_ir_register, llvm_tyype, self.next_ir_register - 1, expr_cte_value, is_inside, False, True)
+                    
+                    printStore(self.next_ir_register, llvm_expr_type, name, llvm_tyype, 4, is_inside, False)
+                    self.next_ir_register += 1
+                else:
+                    printStore(expr_cte_value_str, llvm_expr_type, name, llvm_tyype, 4, is_inside, True)
+                
 
         if ctx.identifier() != None:
             self.ids_defined[name] = tyype, -1, cte_value, ir_register
@@ -533,7 +594,7 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
             name = ctx.identifier(i).getText()
             ir_register = i
             self.ids_defined[name] = tyype, -1, cte_value, ir_register
-            params += [tyype]
+            params += [name]
         return params
 
 
