@@ -9,8 +9,6 @@ void splash (int k) {
 float ResDiv(float k1, float k2) 
 {
     float k3 = k1 / (k1 + k2);
-	
-	store float 3.0, float* %k3, align 4 
     return k3;
 }
 
@@ -26,8 +24,6 @@ int main () {
 	float k = ResDiv(k1, k2);
 
 	int c = a / b;
-	c += 3 * (2 - b) + 4;
-	c = 40 + b - a;
-
+	c /= 3 * (2 - b) + 4;
 	return square(c + 1);
 }
