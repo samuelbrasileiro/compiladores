@@ -44,18 +44,20 @@ def llvm_type(tyype):
     if tyype == Type.FLOAT:
         return "float"
     return str(tyype)
+arquivo = open("output.ll", "w")
+# arquivo.write()
 
 def printAlloca(register, lltyype, align, has_tab=bool):
     lltyype = llvm_type(lltyype)
-    print("{}%{} = alloca {}, align {}".format("\t" if has_tab else "", str(register), lltyype, str(align)))
+    arquivo.write("{}%{} = alloca {}, align {}\n".format("\t" if has_tab else "", str(register), lltyype, str(align)))
 
 def printStore(register_to_store, lltyype_to_store, register_to_be_stored, lltyype_to_be_stored, align, has_tab=False, is_constant=False):
     lltyype_to_store = llvm_type(lltyype_to_store)
     lltyype_to_be_stored = llvm_type(lltyype_to_be_stored)
     if is_constant:
-        print("{}store {} {}, {}* %{}, align {}".format("\t" if has_tab else "", lltyype_to_store, str(register_to_store), lltyype_to_be_stored, str(register_to_be_stored), str(align)))
+        arquivo.write("{}store {} {}, {}* %{}, align {}\n".format("\t" if has_tab else "", lltyype_to_store, str(register_to_store), lltyype_to_be_stored, str(register_to_be_stored), str(align)))
     else:
-        print("{}store {} %{}, {}* %{}, align {}".format("\t" if has_tab else "", lltyype_to_store, str(register_to_store), lltyype_to_be_stored, str(register_to_be_stored), str(align)))
+        arquivo.write("{}store {} %{}, {}* %{}, align {}\n".format("\t" if has_tab else "", lltyype_to_store, str(register_to_store), lltyype_to_be_stored, str(register_to_be_stored), str(align)))
 
 def printOper(ll_oper, register, lltyype, register1, register2, has_tab=bool, r1_is_constant=True, r2_is_constant=True):
     lltyype = llvm_type(lltyype)
@@ -64,19 +66,19 @@ def printOper(ll_oper, register, lltyype, register1, register2, has_tab=bool, r1
     if not r2_is_constant:
         register2 = "%" + str(register2)
     
-    print("{}%{} = {} {} {}, {}".format("\t" if has_tab else "", str(register), str(ll_oper), str(lltyype), str(register1), str(register2)))
+    arquivo.write("{}%{} = {} {} {}, {}\n".format("\t" if has_tab else "", str(register), str(ll_oper), str(lltyype), str(register1), str(register2)))
 
 def printLoad(register_to_be_loaded, lltyype_to_be_loaded, register_to_load, lltyype_to_load, align, has_tab=False):
     lltyype_to_load = llvm_type(lltyype_to_load)
     lltyype_to_be_loaded = llvm_type(lltyype_to_be_loaded)
     
     if register_to_load in global_vars:
-        print("{}%{} = load {}, {}* @{}, align {}".format("\t" if has_tab else "", str(register_to_be_loaded), lltyype_to_be_loaded, lltyype_to_load, str(register_to_load), str(align)))
+        arquivo.write("{}%{} = load {}, {}* @{}, align {}\n".format("\t" if has_tab else "", str(register_to_be_loaded), lltyype_to_be_loaded, lltyype_to_load, str(register_to_load), str(align)))
     else:
-        print("{}%{} = load {}, {}* %{}, align {}".format("\t" if has_tab else "", str(register_to_be_loaded), lltyype_to_be_loaded, lltyype_to_load, str(register_to_load), str(align)))
+        arquivo.write("{}%{} = load {}, {}* %{}, align {}\n".format("\t" if has_tab else "", str(register_to_be_loaded), lltyype_to_be_loaded, lltyype_to_load, str(register_to_load), str(align)))
 
 def printIntToFloat(register_to, register_from, has_tab=False):
-    print("{}%{} = sitofp i32 %{} to float".format("\t" if has_tab else "", register_to, register_from))
+    arquivo.write("{}%{} = sitofp i32 %{} to float\n".format("\t" if has_tab else "", register_to, register_from))
 
 # This class defines a complete generic visitor for a parse tree produced by GrammarParser.
 class GrammarCheckerVisitor(ParseTreeVisitor):
@@ -93,7 +95,7 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by GrammarParser#function_definition.
     def visitFunction_definition(self, ctx:GrammarParser.Function_definitionContext):
-        print("")
+        arquivo.write("\n")
         self.next_ir_register = 0
         tyype = ctx.tyype().getText()
         name = ctx.identifier().getText()
@@ -117,17 +119,17 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
             
             params_text += "{} %{}".format(llvm_type(params_tyypes[index]), index)
 
-        print("define {} @{}({})".format(llvm_type(tyype), name, params_text) + " {")
+        arquivo.write("define {} @{}({})".format(llvm_type(tyype), name, params_text) + " {\n")
         
         for index in range(len(params)):
             printAlloca(params[index], llvm_type(params_tyypes[index]), 4, True)
             printStore(index, llvm_type(params_tyypes[index]), params[index], llvm_type(params_tyypes[index]), 4, True)
         
         if len(params) != 0:
-            print("")
+            arquivo.write("\n")
         self.visit(ctx.body())
 
-        print("}")
+        arquivo.write("}\n")
 
         return
 
@@ -137,7 +139,7 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
         index = 0
         for child in ctx.statement():
             if index != 0:
-                print("")
+                arquivo.write("\n")
             self.visit(child)
             index += 1
         #return self.visitChildren(ctx)
@@ -158,11 +160,11 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
 
                 if cte_value != None:
                     if tyype == Type.FLOAT:
-                        print("\tret " + llvm_tyype + " " + float_to_hex(cte_value))
+                        arquivo.write("\tret " + llvm_tyype + " " + float_to_hex(cte_value) + "\n")
                     else:
-                        print("\tret " + llvm_tyype + " " + str(cte_value))
+                        arquivo.write("\tret " + llvm_tyype + " " + str(cte_value) + "\n")
                 else:
-                    print("\tret " + llvm_tyype + " %" + str(ir_register))
+                    arquivo.write("\tret " + llvm_tyype + " %" + str(ir_register) + "\n")
 
                 if function_type == Type.FLOAT and tyype == Type.INT and expr_cte_value == None:
                     printIntToFloat(self.next_ir_register, ir_register, has_tab=True)
@@ -180,14 +182,14 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
                 err("ERROR: trying to return void expression from function '" + self.inside_what_function + "' in line " + str(token.line) + " and column " + str(token.column) + "\n")
                 exit(-1)
             else:
-                print("\tret void")
+                arquivo.write("\tret void\n")
 
 
         else:
             self.visitChildren(ctx)
         
         if self.inside_what_function == "":
-            print("")
+            arquivo.write("\n")
         return
 
 
@@ -252,7 +254,7 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
                         cte_value_str = float_to_hex(float(cte_value))
 
                     global_vars.append(name)
-                    print("@" + name + " = global " + llvm_type(tyype) + " " + cte_value_str)
+                    arquivo.write("@" + name + " = global " + llvm_type(tyype) + " " + cte_value_str + "\n")
 
 
                 elif cte_value != None:
@@ -754,9 +756,9 @@ class GrammarCheckerVisitor(ParseTreeVisitor):
                     err("WARNING: possible loss of information converting float expression to int expression in parameter " + str(i) + " of function '" + name + "' in line " + str(token.line) + " and column " + str(token.column) + "\n")
         
         if tyype == Type.VOID:
-            print("{}call {} @{}({})".format("\t" if self.inside_what_function != "" else "", llvm_type(tyype), name, params_text))
+            arquivo.write("{}call {} @{}({})\n".format("\t" if self.inside_what_function != "" else "", llvm_type(tyype), name, params_text))
         else:
-            print("{}%{} = call {} @{}({})".format("\t" if self.inside_what_function != "" else "", self.next_ir_register, llvm_type(tyype), name, params_text))
+            arquivo.write("{}%{} = call {} @{}({})\n".format("\t" if self.inside_what_function != "" else "", self.next_ir_register, llvm_type(tyype), name, params_text))
         
             ir_register = self.next_ir_register
             self.next_ir_register += 1
