@@ -18,7 +18,8 @@ statement
 	: variable_definition ';'
 	| variable_assignment ';'
 	| expression ';'
-	| RETURN expression? ';'
+	| RETURN expression ';'
+	| RETURN ';'
 	| for_loop
 	| if_statement
 	| body
